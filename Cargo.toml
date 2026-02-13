@@ -6,5 +6,6 @@ edition = "2024"
 [dependencies]
 petgraph = "0.8.3"
 ratatui = { version = "0.30.0", features = ["serde"] }
-reqwest = "0.12.28"
+reqwest = {version = "0.12.28", features = ["json"]}
+serde = "1.0.228"
 tokio = { version = "1", features = ["full"] }

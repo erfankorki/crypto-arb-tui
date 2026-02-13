@@ -1,8 +1,14 @@
 mod data;
 mod network;
-use network::{get_price_data, Exchange};
+use network::{Exchange, get_price_data};
+use tokio::time::{Duration, interval};
 
-fn main() -> () {
+#[tokio::main]
+async fn main() -> () {
     let coin = String::from("usdt");
-    get_price_data(Exchange::Nobitex, &coin);
+    let mut ticker = interval(Duration::from_secs(3));
+    loop {
+        ticker.tick().await;
+        get_price_data(Exchange::Nobitex, &coin).await;
+    }
 }
