@@ -1,6 +1,6 @@
-use std::ops::Div;
-
 use serde::Deserialize;
+use std::env;
+use std::ops::Div;
 
 #[derive(Debug)]
 pub enum Exchange {
@@ -16,7 +16,11 @@ pub struct NobitexOrderBook {
 }
 
 pub async fn get_nobitex_coin_price(coin: &String) -> Result<f64, reqwest::Error> {
-    let mut result = reqwest::get("https://apiv2.nobitex.ir/v3/orderbook/USDTIRT")
+    let url = env::var("NOBITEX_BASE_URL").unwrap()
+        + "v3/orderbook/"
+        + coin.to_uppercase().as_str()
+        + "IRT";
+    let mut result = reqwest::get(url)
         .await?
         .json::<NobitexOrderBook>()
         .await?
@@ -40,6 +44,6 @@ pub fn get_bitpin_coin_price(coin: &String) -> f64 {
 pub async fn get_price_data(exchange: Exchange, coin: &String) -> () {
     if let Exchange::Nobitex = exchange {
         let data = get_nobitex_coin_price(coin).await.unwrap();
-        println!("{}", data);
+        println!("the best buy price for {} is: {}", coin, data);
     }
 }
