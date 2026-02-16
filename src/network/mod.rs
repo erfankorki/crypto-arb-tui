@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use std::env;
-use std::ops::Div;
+use std::fmt;
 
 #[derive(Debug)]
 pub enum Exchange {
@@ -9,41 +9,142 @@ pub enum Exchange {
     Bitpin,
 }
 
+impl fmt::Display for Exchange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nobitex => f.write_str("Nobitex"),
+            Self::Wallex => f.write_str("Wallex"),
+            Self::Bitpin => f.write_str("Bitpin"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PriceAndAmount {
+    pub price: f64,
+    pub amount: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct BestPrice {
+    pub buy: PriceAndAmount,
+    pub sell: PriceAndAmount,
+}
+
 #[derive(Deserialize)]
-pub struct NobitexOrderBook {
+struct StringPairOrderBook {
     bids: Vec<[String; 2]>,
     asks: Vec<[String; 2]>,
 }
 
-pub async fn get_nobitex_coin_price(coin: &String) -> Result<f64, reqwest::Error> {
-    let url = env::var("NOBITEX_BASE_URL").unwrap()
-        + "v3/orderbook/"
-        + coin.to_uppercase().as_str()
-        + "IRT";
-    let mut result = reqwest::get(url)
-        .await?
-        .json::<NobitexOrderBook>()
-        .await?
-        .bids
-        .iter()
-        .map(|bid| bid[0].parse::<f64>().unwrap().div(10.0))
-        .collect::<Vec<f64>>();
-    result.sort_by(|a, b| b.total_cmp(a));
-
-    Ok(*result.get(0).unwrap())
+#[derive(Deserialize)]
+struct WallexOrderEntry {
+    price: f64,
+    quantity: f64,
 }
 
-pub fn get_wallex_coin_price(coin: &String) -> f64 {
-    10.0
+#[derive(Deserialize)]
+struct WallexOrderBookInner {
+    bid: Vec<WallexOrderEntry>,
+    ask: Vec<WallexOrderEntry>,
 }
 
-pub fn get_bitpin_coin_price(coin: &String) -> f64 {
-    10.0
+#[derive(Deserialize)]
+struct WallexOrderBookResponse {
+    result: WallexOrderBookInner,
 }
 
-pub async fn get_price_data(exchange: Exchange, coin: &String) -> () {
-    if let Exchange::Nobitex = exchange {
-        let data = get_nobitex_coin_price(coin).await.unwrap();
-        println!("the best buy price for {} is: {}", coin, data);
+fn parse_string_pair(entry: &[String; 2], price_divisor: f64) -> PriceAndAmount {
+    PriceAndAmount {
+        price: entry[0].parse::<f64>().unwrap() / price_divisor,
+        amount: entry[1].parse::<f64>().unwrap(),
     }
+}
+
+fn extract_best_price(
+    bids: &[[String; 2]],
+    asks: &[[String; 2]],
+    price_divisor: f64,
+) -> BestPrice {
+    let best_bid = bids
+        .iter()
+        .max_by(|a, b| {
+            a[0].parse::<f64>()
+                .unwrap()
+                .total_cmp(&b[0].parse::<f64>().unwrap())
+        })
+        .expect("bids should not be empty");
+
+    let best_ask = asks
+        .iter()
+        .min_by(|a, b| {
+            a[0].parse::<f64>()
+                .unwrap()
+                .total_cmp(&b[0].parse::<f64>().unwrap())
+        })
+        .expect("asks should not be empty");
+
+    BestPrice {
+        buy: parse_string_pair(best_bid, price_divisor),
+        sell: parse_string_pair(best_ask, price_divisor),
+    }
+}
+
+fn extract_wallex_best_price(inner: &WallexOrderBookInner) -> BestPrice {
+    let best_bid = inner
+        .bid
+        .iter()
+        .max_by(|a, b| a.price.total_cmp(&b.price))
+        .expect("bids should not be empty");
+
+    let best_ask = inner
+        .ask
+        .iter()
+        .min_by(|a, b| a.price.total_cmp(&b.price))
+        .expect("asks should not be empty");
+
+    BestPrice {
+        buy: PriceAndAmount { price: best_bid.price, amount: best_bid.quantity },
+        sell: PriceAndAmount { price: best_ask.price, amount: best_ask.quantity },
+    }
+}
+
+pub async fn fetch_nobitex_best_price(coin: &str) -> Result<BestPrice, reqwest::Error> {
+    let base_url = env::var("NOBITEX_BASE_URL").expect("NOBITEX_BASE_URL must be set");
+    let url = format!("{base_url}v3/orderbook/{}IRT", coin.to_uppercase());
+
+    let book = reqwest::get(&url).await?.json::<StringPairOrderBook>().await?;
+    Ok(extract_best_price(&book.bids, &book.asks, 10.0))
+}
+
+pub async fn fetch_bitpin_best_price(coin: &str) -> Result<BestPrice, reqwest::Error> {
+    let base_url = env::var("BITPIN_BASE_URL").expect("BITPIN_BASE_URL must be set");
+    let url = format!("{base_url}api/v1/mth/orderbook/{}_IRT/", coin.to_uppercase());
+
+    let book = reqwest::get(&url).await?.json::<StringPairOrderBook>().await?;
+    Ok(extract_best_price(&book.bids, &book.asks, 1.0))
+}
+
+pub async fn fetch_wallex_best_price(coin: &str) -> Result<BestPrice, reqwest::Error> {
+    let base_url = env::var("WALLEX_BASE_URL").expect("WALLEX_BASE_URL must be set");
+    let url = format!("{base_url}v1/depth?symbol={}TMN", coin.to_uppercase());
+
+    let resp = reqwest::get(&url).await?.json::<WallexOrderBookResponse>().await?;
+    Ok(extract_wallex_best_price(&resp.result))
+}
+
+pub async fn fetch_best_price(exchange: Exchange, coin: &str) {
+    let default = BestPrice {
+        buy: PriceAndAmount { price: 0.0, amount: 0.0 },
+        sell: PriceAndAmount { price: 0.0, amount: 0.0 },
+    };
+
+    let best_price = match exchange {
+        Exchange::Nobitex => fetch_nobitex_best_price(coin).await,
+        Exchange::Wallex => fetch_wallex_best_price(coin).await,
+        Exchange::Bitpin => fetch_bitpin_best_price(coin).await,
+    }
+    .unwrap_or(default);
+
+    println!("{exchange} best price for {coin}: {best_price:?}");
 }
