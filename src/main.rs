@@ -10,6 +10,10 @@ async fn main() -> () {
     let mut ticker = interval(Duration::from_secs(2));
     loop {
         ticker.tick().await;
-        fetch_best_price(Exchange::Wallex, &coin).await;
+        tokio::join!(
+            fetch_best_price(Exchange::Nobitex, &coin),
+            fetch_best_price(Exchange::Wallex, &coin),
+            fetch_best_price(Exchange::Bitpin, &coin),
+        );
     }
 }
