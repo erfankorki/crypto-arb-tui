@@ -1,22 +1,10 @@
 use serde::Deserialize;
 use std::env;
-use std::fmt;
-
 #[derive(Debug)]
 pub enum Exchange {
     Nobitex,
     Wallex,
     Bitpin,
-}
-
-impl fmt::Display for Exchange {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Nobitex => f.write_str("Nobitex"),
-            Self::Wallex => f.write_str("Wallex"),
-            Self::Bitpin => f.write_str("Bitpin"),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -90,14 +78,14 @@ fn extract_best_price(
     }
 }
 
-fn extract_wallex_best_price(inner: &WallexOrderBookInner) -> BestPrice {
-    let best_bid = inner
+fn extract_wallex_best_price(order_book: &WallexOrderBookInner) -> BestPrice {
+    let best_bid = order_book
         .bid
         .iter()
         .max_by(|a, b| a.price.total_cmp(&b.price))
         .expect("bids should not be empty");
 
-    let best_ask = inner
+    let best_ask = order_book
         .ask
         .iter()
         .min_by(|a, b| a.price.total_cmp(&b.price))
@@ -146,5 +134,5 @@ pub async fn fetch_best_price(exchange: Exchange, coin: &str) {
     }
     .unwrap_or(default);
 
-    println!("{exchange} best price for {coin}: {best_price:?}");
+    println!("{exchange:?} best price for {coin}: {best_price:?}");
 }
