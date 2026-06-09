@@ -79,7 +79,7 @@ export const usePricesStore = () => {
     const pricesQueryFactory = ({ exchange, market }: { exchange: Exchange, market: string }) => useQuery({
         queryKey: ['prices', exchange],
         queryFn: () => PricesAdapter[exchange](market),
-        refetchInterval: 2_000
+        refetchInterval: 1_000
     })
 
     return {

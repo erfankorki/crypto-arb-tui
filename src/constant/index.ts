@@ -1,8 +1,9 @@
 import { fetch } from "@tauri-apps/plugin-http";
+import { isTauri } from "@tauri-apps/api/core";
 import ky from "ky";
 
 export const kyInstance = ky.create({
-    fetch
+    fetch: isTauri() ? fetch : undefined,
 })
 
 declare global {
